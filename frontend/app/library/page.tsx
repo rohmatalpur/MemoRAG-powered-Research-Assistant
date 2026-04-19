@@ -9,7 +9,6 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState("");
-  const [urlInput, setUrlInput] = useState("");
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [filter, setFilter] = useState<"all" | "indexed" | "processing">("all");
   const [dragOver, setDragOver] = useState(false);
@@ -38,21 +37,6 @@ export default function LibraryPage() {
       for (const file of Array.from(files)) {
         await uploadPaper(file);
       }
-      await load();
-    } catch (e: any) {
-      alert(`Upload failed: ${e.message}`);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleUrlUpload = async () => {
-    const url = urlInput.trim();
-    if (!url) return;
-    setUploading(true);
-    try {
-      await uploadPaper(undefined, url);
-      setUrlInput("");
       await load();
     } catch (e: any) {
       alert(`Upload failed: ${e.message}`);
@@ -113,23 +97,8 @@ export default function LibraryPage() {
 
         {/* Upload row */}
         <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Paste URL (arXiv, blog, preprint)…"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleUrlUpload()}
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <button
-            onClick={handleUrlUpload}
-            disabled={uploading || !urlInput.trim()}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40"
-          >
-            Add URL
-          </button>
-          <label className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 cursor-pointer">
-            {uploading ? "Uploading…" : "Upload PDF"}
+          <label className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-40">
+            {uploading ? "Uploading…" : "Upload PDF / DOCX"}
             <input
               type="file"
               accept=".pdf,.docx"
@@ -167,7 +136,7 @@ export default function LibraryPage() {
             <p>
               {search
                 ? "No papers match your search."
-                : "No papers yet. Upload a PDF or paste a URL above."}
+                : "No papers yet. Upload a PDF or DOCX above."}
             </p>
             <p className="text-xs mt-1 text-gray-300">
               You can also drag & drop PDFs here

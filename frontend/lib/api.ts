@@ -23,13 +23,11 @@ export const deletePaper = (id: string) =>
   apiFetch<{ status: string }>(`/api/papers/${id}`, { method: "DELETE" });
 
 export const uploadPaper = async (
-  file?: File,
-  url?: string,
+  file: File,
   sessionId?: string
 ): Promise<{ status: string; source: string; session_id: string }> => {
   const form = new FormData();
-  if (file) form.append("file", file);
-  if (url) form.append("url", url);
+  form.append("file", file);
   if (sessionId) form.append("session_id", sessionId);
 
   const res = await fetch(`${BASE_URL}/api/papers/upload`, {

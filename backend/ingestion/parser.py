@@ -1,11 +1,9 @@
 from __future__ import annotations
-import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
 import requests
-import trafilatura
 
 from backend.models import ParsedPaper, ParsedSection, ParsedReference
 from backend.config import GROBID_URL
@@ -20,13 +18,11 @@ class PaperParser:
 
     def parse(self, source: str | Path) -> ParsedPaper:
         s = str(source)
-        if s.startswith("http://") or s.startswith("https://"):
-            return self._parse_web(s)
-        elif s.endswith(".pdf"):
+        if s.endswith(".pdf"):
             return self._parse_pdf(Path(source))
         elif s.endswith(".docx"):
             return self._parse_docx(Path(source))
-        raise ValueError(f"Unsupported source: {source}")
+        raise ValueError(f"Unsupported source type: {source}. Only PDF and DOCX are supported.")
 
     # ------------------------------------------------------------------ PDF
     def _parse_pdf(self, path: Path) -> ParsedPaper:
@@ -224,206 +220,6 @@ class PaperParser:
             source_path=str(path),
             source_type="docx",
         )
-
-    # ------------------------------------------------------------------ URL
-    def _parse_web(self, url: str) -> ParsedPaper:
-        downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
-            raise RuntimeError(f"Could not fetch URL: {url}")
-
-        metadata = trafilatura.extract_metadata(downloaded)
-        title = metadata.title if metadata and metadata.title else url
-        authors = [metadata.author] if metadata and metadata.author else []
-        year = None
-        if metadata and metadata.date:
-            try:
-                year = int(str(metadata.date)[:4])
-            except ValueError:
-                pass
-
-        sections = self._extract_sections_from_html(downloaded)
-        if not sections:
-            # Fallback: trafilatura plain-text extraction as one blob
-            text = trafilatura.extract(
-                downloaded, include_tables=False, include_comments=False
-            ) or ""
-            sections = [ParsedSection(
-                heading="Full Text", type="body",
-                content=text, page_start=0, page_end=0,
-            )]
-
-        references = self._extract_web_references(downloaded, base_url=url)
-
-        return ParsedPaper(
-            title=title,
-            authors=authors,
-            year=year,
-            sections=sections,
-            references=references,
-            source_path=url,
-            source_type="url",
-        )
-
-    def _extract_sections_from_html(self, html: str) -> list[ParsedSection]:
-        """
-        Walk HTML headings (h1-h4) and group content between them into
-        ParsedSection objects, preserving the structure of the page.
-        """
-        from bs4 import BeautifulSoup, NavigableString, Tag
-
-        soup = BeautifulSoup(html, "lxml")
-
-        # Remove noise elements
-        for tag in soup(["script", "style", "nav", "footer", "header",
-                         "aside", "form", "noscript", "figure"]):
-            tag.decompose()
-
-        # Find the richest content container
-        body = (
-            soup.find("article")
-            or soup.find("main")
-            or soup.find(id=re.compile(r"content|article|post|body", re.I))
-            or soup.find(class_=re.compile(r"content|article|post|entry|body", re.I))
-            or soup.body
-        )
-        if body is None:
-            return []
-
-        HEADING_TAGS = {"h1", "h2", "h3", "h4"}
-        sections: list[ParsedSection] = []
-        current_heading = "Introduction"
-        current_paragraphs: list[str] = []
-
-        def flush(heading: str, paragraphs: list[str]) -> None:
-            content = "\n\n".join(p for p in paragraphs if p.strip())
-            if content.strip():
-                sections.append(ParsedSection(
-                    heading=heading,
-                    type=self._infer_section_type(heading),
-                    content=content,
-                    page_start=0,
-                    page_end=0,
-                ))
-
-        for element in body.descendants:
-            if not isinstance(element, Tag):
-                continue
-            if element.name in HEADING_TAGS:
-                heading_text = element.get_text(" ", strip=True)
-                if heading_text:
-                    flush(current_heading, current_paragraphs)
-                    current_heading = heading_text
-                    current_paragraphs = []
-            elif element.name == "p":
-                text = element.get_text(" ", strip=True)
-                if text:
-                    current_paragraphs.append(text)
-
-        flush(current_heading, current_paragraphs)
-        return sections
-
-    def _extract_web_references(
-        self, html: str, base_url: str
-    ) -> list[ParsedReference]:
-        """
-        Extract pseudo-references from a web page:
-        1. Outbound links to known paper repositories (arXiv, DOI, ACL, etc.)
-        2. Numbered reference list items ([1] Author et al. ...)
-        """
-        from bs4 import BeautifulSoup
-        from urllib.parse import urljoin, urlparse
-
-        soup = BeautifulSoup(html, "lxml")
-        refs: list[ParsedReference] = []
-        seen_urls: set[str] = set()
-
-        # --- 1. Harvest links to academic sources ---
-        ACADEMIC_PATTERNS = re.compile(
-            r"(arxiv\.org|doi\.org|aclanthology\.org|openreview\.net"
-            r"|semanticscholar\.org|papers\.nips\.cc|proceedings\.mlr\.press"
-            r"|aclweb\.org|dl\.acm\.org|ieeexplore\.ieee\.org)",
-            re.I,
-        )
-        for a in soup.find_all("a", href=True):
-            href = urljoin(base_url, a["href"])
-            if href in seen_urls:
-                continue
-            if not ACADEMIC_PATTERNS.search(href):
-                continue
-            seen_urls.add(href)
-
-            link_text = a.get_text(" ", strip=True)
-            doi = self._doi_from_url(href)
-            year = self._year_from_url(href)
-
-            refs.append(ParsedReference(
-                title=link_text or href,
-                doi=doi,
-                url=href,
-                year=year,
-                context=self._surrounding_text(a, chars=200),
-            ))
-
-        # --- 2. Numbered reference list items ---
-        REF_ITEM = re.compile(r"^\s*\[?\d+\]?\s+.{20,}", re.M)
-        # Look for <ol>/<ul> near a "References" heading
-        ref_section = None
-        for heading in soup.find_all(re.compile(r"^h[1-4]$")):
-            if re.search(r"reference|bibliograph", heading.get_text(), re.I):
-                ref_section = heading
-                break
-
-        if ref_section:
-            container = ref_section.find_next_sibling(
-                ["ol", "ul", "div", "section"]
-            )
-            if container:
-                for li in container.find_all(["li", "p"]):
-                    text = li.get_text(" ", strip=True)
-                    if not text or len(text) < 20:
-                        continue
-                    doi = self._doi_from_text(text)
-                    year = self._year_from_text(text)
-                    refs.append(ParsedReference(
-                        title=text[:200],
-                        doi=doi,
-                        year=year,
-                        context=text[:300],
-                    ))
-
-        return refs[:50]  # cap to avoid noise from link-heavy pages
-
-    # ------------------------------------------------------------------ helpers
-    @staticmethod
-    def _doi_from_url(url: str) -> Optional[str]:
-        m = re.search(r"doi\.org/(.+)", url)
-        return m.group(1) if m else None
-
-    @staticmethod
-    def _doi_from_text(text: str) -> Optional[str]:
-        m = re.search(r"10\.\d{4,}/\S+", text)
-        return m.group(0).rstrip(".,)") if m else None
-
-    @staticmethod
-    def _year_from_url(url: str) -> Optional[int]:
-        # arXiv IDs like 2310.12345
-        m = re.search(r"/(2[01]\d{2})\.", url)
-        if m:
-            return int(m.group(1))
-        return None
-
-    @staticmethod
-    def _year_from_text(text: str) -> Optional[int]:
-        m = re.search(r"\b(19|20)\d{2}\b", text)
-        return int(m.group(0)) if m else None
-
-    @staticmethod
-    def _surrounding_text(tag, chars: int = 200) -> str:
-        """Return up to `chars` characters of text around a tag."""
-        parent = tag.parent
-        if parent is None:
-            return ""
-        return parent.get_text(" ", strip=True)[:chars]
 
     # ------------------------------------------------------------------ helpers
     @staticmethod

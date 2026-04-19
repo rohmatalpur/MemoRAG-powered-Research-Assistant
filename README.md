@@ -38,7 +38,7 @@ This system extends core MemoRAG with two additional signals layered on top:
 ## What the User Can Do
 
 ### Library View
-Upload research papers as PDF, DOCX, or URL (arXiv, blog posts, preprints). Each paper is automatically processed in the background. The library shows title, authors, year, processing status, and up to 10 concept tags auto-extracted by the Memory LLM. 
+Upload research papers as PDF or DOCX. Each paper is automatically processed in the background. The library shows title, authors, year, processing status, and up to 10 concept tags auto-extracted by the Memory LLM. 
 
 ### Knowledge Graph View
 An interactive force-directed graph that grows with every paper you add:
@@ -97,9 +97,8 @@ A chronological view of every reading session showing how many papers were added
 **How it works:**
 
 **Parser (`parser.py`)** detects the source type and routes accordingly:
-- *Academic PDF* → sends to the Grobid REST API which returns TEI XML containing all sections.
+- *Academic PDF* → sends to the Grobid REST API which returns TEI XML containing all sections. Falls back to PyMuPDF if Grobid is unavailable.
 - *DOCX* → python-docx walks paragraph styles, using Heading styles to detect section boundaries.
-- *URL* → trafilatura fetches the HTML and strips boilerplate. BeautifulSoup then walks the DOM, grouping content between `<h1>`–`<h4>` tags into named sections. Outbound links to arXiv, DOI, ACL, OpenReview, Semantic Scholar, NeurIPS, and ICML are harvested as pseudo-references. Numbered reference list items are extracted via regex. This means even a blog post that links to papers can create citation edges in the knowledge graph.
 
 **Chunker (`chunker.py`)** splits each section at paragraph boundaries:
 - Sections under 512 tokens → single chunk

@@ -39,24 +39,24 @@ def _run_ingestion(source: str, session_id: str) -> None:
 async def upload_paper(
     background_tasks: BackgroundTasks,
     file: UploadFile | None = File(None),
-    url: str | None = Form(None),
     session_id: str | None = Form(None),
 ):
     sm = get_session_manager()
     if session_id is None:
         session_id = sm.get_or_create_active_session()
 
-    if file is not None:
-        # Save file to disk
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        dest = Path(UPLOAD_DIR) / file.filename
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-        source = str(dest)
-    elif url:
-        source = url
-    else:
-        raise HTTPException(400, "Provide a file or URL")
+    if file is None:
+        raise HTTPException(400, "Provide a PDF or DOCX file")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in {".pdf", ".docx"}:
+        raise HTTPException(400, "Only PDF and DOCX files are supported")
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    dest = Path(UPLOAD_DIR) / file.filename
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    source = str(dest)
 
     background_tasks.add_task(_run_ingestion, source, session_id)
     return {"status": "processing", "source": source, "session_id": session_id}
