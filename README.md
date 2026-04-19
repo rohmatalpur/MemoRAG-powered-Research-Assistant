@@ -255,8 +255,8 @@ All four stores are backed by Docker named volumes and persist across container 
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
-cd personal_assistant_research
+git clone https://github.com/rohmatalpur/MemoRAG-powered-Research-Assistant.git
+cd MemoRAG-powered-Research-Assistant
 ```
 
 ### 2. Configure environment variables
