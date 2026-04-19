@@ -10,8 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY backend/requirements.txt .
 # Install CPU-only torch first to avoid downloading 2GB+ of CUDA libraries
-RUN pip install --no-cache-dir torch==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 300 --retries 5 \
+    torch==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
 # Copy backend package so `import backend.xxx` resolves correctly
 COPY backend/ ./backend/
